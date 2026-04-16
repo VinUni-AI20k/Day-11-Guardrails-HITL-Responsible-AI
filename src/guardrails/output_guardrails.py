@@ -50,6 +50,9 @@ def content_filter(response: str) -> dict:
         "national_id": r"\b\d{9}\b|\b\d{12}\b",
         "api_key": r"\bsk-[a-zA-Z0-9-]{8,}\b",
         "password": r"\bpassword\b\s*[:=]\s*\S+",
+        "admin_password": r"\badmin password\b\s*(?:is|=|:)\s*\S+",
+        "password_is": r"\bpassword\b\s*(?:is|=|:)\s*\S+",
+        "internal_endpoint": r"\b[\w.-]+\.internal(?::\d{2,5})?\b",
     }
 
     for name, pattern in PII_PATTERNS.items():
