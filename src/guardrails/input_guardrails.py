@@ -38,9 +38,12 @@ def detect_injection(user_input: str) -> bool:
         True if injection detected, False otherwise
     """
     INJECTION_PATTERNS = [
-        # TODO: Add at least 5 regex patterns
-        # Example:
-        # r"ignore (all )?(previous|above) instructions",
+        r"\bignore\b.*\b(previous|above|all)\b.*\binstructions\b",
+        r"\boverride\b.*\b(system|developer)\b.*\b(instructions|prompt)\b",
+        r"\b(system prompt|developer message|hidden instructions)\b",
+        r"\b(reveal|show|print|dump|expose)\b.*\b(instructions|prompt|policy|config)\b",
+        r"\b(you are now|pretend you are|act as)\b.*\b(unrestricted|dan|developer|admin|auditor)\b",
+        r"\b(bỏ qua|phớt lờ)\b.*\b(hướng dẫn|chỉ dẫn)\b",
     ]
 
     for pattern in INJECTION_PATTERNS:
@@ -74,8 +77,15 @@ def topic_filter(user_input: str) -> bool:
     # 1. If input contains any blocked topic -> return True
     # 2. If input doesn't contain any allowed topic -> return True
     # 3. Otherwise -> return False (allow)
+    for blocked in BLOCKED_TOPICS:
+        if blocked.lower() in input_lower:
+            return True
 
-    pass  # Replace with your implementation
+    for allowed in ALLOWED_TOPICS:
+        if allowed.lower() in input_lower:
+            return False
+
+    return True
 
 
 # ============================================================
@@ -134,8 +144,19 @@ class InputGuardrailPlugin(base_plugin.BasePlugin):
         # 2. Call topic_filter(text)
         #    - If True: increment blocked_count, return self._block_response("...")
         # 3. If both are False: return None (let message through)
+        if detect_injection(text):
+            self.blocked_count += 1
+            return self._block_response(
+                "BLOCKED: I can't help with that request. I can only assist with VinBank banking questions."
+            )
 
-        pass  # Replace with your implementation
+        if topic_filter(text):
+            self.blocked_count += 1
+            return self._block_response(
+                "BLOCKED: I'm a VinBank assistant and can only help with banking-related questions (accounts, transactions, loans, savings, cards)."
+            )
+
+        return None
 
 
 # ============================================================
