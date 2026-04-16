@@ -3,6 +3,10 @@ Lab 11 — Part 1: Adversarial Attacks
   TODO 1: Write 5 adversarial prompts
   TODO 2: Generate attack test cases with AI
 """
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import json
 
 from google import genai

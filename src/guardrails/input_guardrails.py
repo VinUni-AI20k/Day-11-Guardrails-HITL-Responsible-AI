@@ -4,6 +4,10 @@ Lab 11 — Part 2A: Input Guardrails
   TODO 4: Topic filter
   TODO 5: Input Guardrail Plugin (ADK)
 """
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import re
 
 from google.genai import types
@@ -217,10 +221,6 @@ async def test_input_plugin():
 
 
 if __name__ == "__main__":
-    import sys
-    from pathlib import Path
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
     test_injection_detection()
     test_topic_filter()
     import asyncio

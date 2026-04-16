@@ -3,6 +3,10 @@ Lab 11 — Part 3: Before/After Comparison & Security Testing Pipeline
   TODO 10: Rerun 5 attacks with guardrails (before vs after)
   TODO 11: Automated security testing pipeline
 """
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import asyncio
 from dataclasses import dataclass, field
 
@@ -248,8 +252,4 @@ async def test_pipeline():
 
 
 if __name__ == "__main__":
-    import sys
-    from pathlib import Path
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
     asyncio.run(test_pipeline())
