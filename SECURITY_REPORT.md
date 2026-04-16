@@ -100,21 +100,3 @@ SECURITY TEST REPORT
 ======================================================================
 ```
 
-## 7) Hướng dẫn chạy để chụp kết quả nộp
-
-```bash
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-export GOOGLE_API_KEY="..."
-
-cd src
-python main.py --part 3
-```
-
-Sau khi chạy, copy phần output:
-- Bảng “COMPARISON: Unprotected vs Protected”
-- “SECURITY TEST REPORT”
-và dán vào mục 5–6.
-
