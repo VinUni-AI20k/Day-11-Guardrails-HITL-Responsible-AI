@@ -12,6 +12,7 @@ from google.adk.agents import llm_agent
 from google.adk import runners
 from google.adk.plugins import base_plugin
 
+from core.config import build_adk_model
 from core.utils import chat_with_agent
 
 
@@ -41,12 +42,20 @@ def content_filter(response: str) -> dict:
 
     # PII patterns to check
     PII_PATTERNS = {
-        # TODO: Add regex patterns for:
-        # - VN phone number: r"0\d{9,10}"
-        # - Email: r"[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}"
-        # - National ID (CMND/CCCD): r"\b\d{9}\b|\b\d{12}\b"
-        # - API key pattern: r"sk-[a-zA-Z0-9-]+"
-        # - Password pattern: r"password\s*[:=]\s*\S+"
+        # VN phone numbers (10-11 digits starting with 0) — protects customer privacy
+        "VN_Phone": r"0\d{9,10}",
+        # Email addresses — prevents leaking customer contact info
+        "Email": r"[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}",
+        # VN National ID (CMND 9 digits or CCCD 12 digits) — critical PII
+        "National_ID": r"\b\d{9}\b|\b\d{12}\b",
+        # API keys (sk-* pattern) — prevents credential leakage
+        "API_Key": r"sk-[a-zA-Z0-9_-]+",
+        # Passwords in key=value format — prevents secret exposure
+        "Password": r"password\s*[:=]\s*\S+",
+        # Database connection strings — prevents infrastructure exposure
+        "DB_Connection": r"[a-zA-Z0-9._-]+\.internal[:\d]*",
+        # Credit card numbers (13-19 digits) — critical financial PII
+        "Credit_Card": r"\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{1,7}\b",
     }
 
     for name, pattern in PII_PATTERNS.items():
@@ -89,15 +98,14 @@ Respond with ONLY one word: SAFE or UNSAFE
 If UNSAFE, add a brief reason on the next line.
 """
 
-# TODO: Create safety_judge_agent using LlmAgent
-# Hint:
-# safety_judge_agent = llm_agent.LlmAgent(
-#     model="gemini-2.0-flash",
-#     name="safety_judge",
-#     instruction=SAFETY_JUDGE_INSTRUCTION,
-# )
-
-safety_judge_agent = None  # TODO: Replace with implementation
+# LLM-as-Judge: A separate LLM instance that evaluates responses for safety.
+# Why: Catches subtle issues (hallucination, tone, leaked info) that regex-based
+# filters miss. Acts as a semantic safety net — the last line of defense.
+safety_judge_agent = llm_agent.LlmAgent(
+    model=build_adk_model(),
+    name="safety_judge",
+    instruction=SAFETY_JUDGE_INSTRUCTION,
+)
 judge_runner = None
 
 
@@ -172,16 +180,35 @@ class OutputGuardrailPlugin(base_plugin.BasePlugin):
         if not response_text:
             return llm_response
 
-        # TODO: Implement logic:
-        # 1. Call content_filter(response_text)
-        #    - If issues found: replace llm_response.content with redacted version
-        #    - Increment self.redacted_count
-        # 2. If use_llm_judge: call llm_safety_check(response_text)
-        #    - If unsafe: replace llm_response.content with a safe message
-        #    - Increment self.blocked_count
-        # 3. Return llm_response (possibly modified)
+        # Layer 1: Content filter — regex-based PII/secret detection and redaction
+        # Why: Fast, deterministic check that catches known patterns (phone, email, API keys)
+        # before they reach the user. Complements the LLM judge which handles semantic issues.
+        filter_result = content_filter(response_text)
+        if not filter_result["safe"]:
+            self.redacted_count += 1
+            # Replace response content with redacted version
+            llm_response.content = types.Content(
+                role="model",
+                parts=[types.Part.from_text(text=filter_result["redacted"])],
+            )
+            response_text = filter_result["redacted"]  # Use redacted text for judge
 
-        return llm_response  # TODO: modify if needed
+        # Layer 2: LLM-as-Judge — semantic safety evaluation
+        # Why: Catches nuanced issues that regex misses: hallucinations, subtle info leaks,
+        # inappropriate tone, off-topic tangents. A second LLM provides defense-in-depth.
+        if self.use_llm_judge:
+            judge_result = await llm_safety_check(response_text)
+            if not judge_result["safe"]:
+                self.blocked_count += 1
+                llm_response.content = types.Content(
+                    role="model",
+                    parts=[types.Part.from_text(
+                        text="I apologize, but I cannot provide that information. "
+                             "Please ask me about banking services instead."
+                    )],
+                )
+
+        return llm_response
 
 
 # ============================================================

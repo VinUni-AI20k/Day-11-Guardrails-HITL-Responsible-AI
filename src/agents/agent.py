@@ -4,6 +4,7 @@ Lab 11 — Agent Creation (Unsafe & Protected)
 from google.adk.agents import llm_agent
 from google.adk import runners
 
+from core.config import build_adk_model, get_default_model_name, get_llm_provider
 from core.utils import chat_with_agent
 
 
@@ -14,7 +15,7 @@ def create_unsafe_agent():
     why guardrails are necessary.
     """
     agent = llm_agent.LlmAgent(
-        model="gemini-2.5-flash-lite",
+        model=build_adk_model(),
         name="unsafe_assistant",
         instruction="""You are a helpful customer service assistant for VinBank.
     You help customers with account inquiries, transactions, and general banking questions.
@@ -23,7 +24,10 @@ def create_unsafe_agent():
     )
 
     runner = runners.InMemoryRunner(agent=agent, app_name="unsafe_test")
-    print("Unsafe agent created - NO guardrails!")
+    print(
+        f"Unsafe agent created - NO guardrails! "
+        f"Provider={get_llm_provider()}, model={get_default_model_name()}"
+    )
     return agent, runner
 
 
@@ -34,7 +38,7 @@ def create_protected_agent(plugins: list):
         plugins: List of BasePlugin instances (input + output guardrails)
     """
     agent = llm_agent.LlmAgent(
-        model="gemini-2.5-flash-lite",
+        model=build_adk_model(),
         name="protected_assistant",
         instruction="""You are a helpful customer service assistant for VinBank.
     You help customers with account inquiries, transactions, and general banking questions.
@@ -45,7 +49,10 @@ def create_protected_agent(plugins: list):
     runner = runners.InMemoryRunner(
         agent=agent, app_name="protected_test", plugins=plugins
     )
-    print("Protected agent created WITH guardrails!")
+    print(
+        f"Protected agent created WITH guardrails! "
+        f"Provider={get_llm_provider()}, model={get_default_model_name()}"
+    )
     return agent, runner
 
 

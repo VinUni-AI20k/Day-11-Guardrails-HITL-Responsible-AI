@@ -38,9 +38,30 @@ def detect_injection(user_input: str) -> bool:
         True if injection detected, False otherwise
     """
     INJECTION_PATTERNS = [
-        # TODO: Add at least 5 regex patterns
-        # Example:
-        # r"ignore (all )?(previous|above) instructions",
+        # English injection patterns
+        r"ignore (all )?(previous|above|prior) instructions",
+        r"you are now",
+        r"system prompt",
+        r"reveal your (instructions|prompt|config)",
+        r"pretend you are",
+        r"act as (a |an )?unrestricted",
+        r"forget (all |your )?(previous |prior )?instructions",
+        r"override (your |the )?system",
+        r"disregard (all |any )?(prior |previous )?directives",
+        r"translate.*(instructions|prompt|config).*(json|xml|yaml|french|vietnamese)",
+        r"(admin|root|system)\s*(password|passwd|credential)",
+        r"(api|secret)\s*(key|token)",
+        r"fill in.*(password|key|credential|secret)",
+        r"what is (the |your )?(admin |system )?(password|api.?key|secret)",
+        # Vietnamese injection patterns
+        r"bỏ qua (mọi |tất cả )?hướng dẫn",
+        r"tiết lộ (mật khẩu|thông tin|bí mật)",
+        r"cho tôi (xem |biết )?(mật khẩu|system prompt|api key)",
+        r"quên (hết |tất cả )?(hướng dẫn|chỉ thị)",
+        # DAN / jailbreak patterns
+        r"\bDAN\b",
+        r"do anything now",
+        r"jailbreak",
     ]
 
     for pattern in INJECTION_PATTERNS:
@@ -70,12 +91,21 @@ def topic_filter(user_input: str) -> bool:
     """
     input_lower = user_input.lower()
 
-    # TODO: Implement logic:
-    # 1. If input contains any blocked topic -> return True
-    # 2. If input doesn't contain any allowed topic -> return True
-    # 3. Otherwise -> return False (allow)
+    # Step 1: Check for explicitly blocked topics (immediate reject)
+    # Why: Catches requests about hacking, weapons, drugs, etc. that should never be answered
+    for topic in BLOCKED_TOPICS:
+        if topic in input_lower:
+            return True  # BLOCKED — dangerous topic detected
 
-    pass  # Replace with your implementation
+    # Step 2: Check if input relates to any allowed banking topic
+    # Why: Ensures the agent only answers banking-related questions, rejecting off-topic requests
+    for topic in ALLOWED_TOPICS:
+        if topic in input_lower:
+            return False  # ALLOWED — banking-related topic found
+
+    # Step 3: If no allowed topic found, block as off-topic
+    # Why: Default-deny — if we can't confirm it's banking-related, reject it
+    return True
 
 
 # ============================================================
@@ -128,14 +158,27 @@ class InputGuardrailPlugin(base_plugin.BasePlugin):
         self.total_count += 1
         text = self._extract_text(user_message)
 
-        # TODO: Implement logic:
-        # 1. Call detect_injection(text)
-        #    - If True: increment blocked_count, return self._block_response("...")
-        # 2. Call topic_filter(text)
-        #    - If True: increment blocked_count, return self._block_response("...")
-        # 3. If both are False: return None (let message through)
+        # Layer 1: Check for prompt injection attacks
+        # Why: Injection is the #1 LLM security threat (OWASP). Must be caught BEFORE the LLM sees the input.
+        if detect_injection(text):
+            self.blocked_count += 1
+            return self._block_response(
+                "⚠️ Your request has been blocked. Prompt injection detected. "
+                "I can only help with legitimate banking questions."
+            )
 
-        pass  # Replace with your implementation
+        # Layer 2: Check for off-topic or blocked topics
+        # Why: Even non-malicious off-topic requests waste resources and create liability.
+        if topic_filter(text):
+            self.blocked_count += 1
+            return self._block_response(
+                "⚠️ Your request is outside my scope. I'm a VinBank assistant "
+                "and can only help with banking-related questions such as accounts, "
+                "transactions, loans, and savings."
+            )
+
+        # Both checks passed — allow message through to the LLM
+        return None
 
 
 # ============================================================

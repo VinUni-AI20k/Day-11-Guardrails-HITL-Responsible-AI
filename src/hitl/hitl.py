@@ -65,32 +65,51 @@ class ConfidenceRouter:
         Returns:
             RoutingDecision with routing action and metadata
         """
-        # TODO 12: Implement routing logic
-        #
-        # 1. Check if action_type is in HIGH_RISK_ACTIONS
-        #    -> If yes: always escalate (action="escalate", priority="high",
-        #       requires_human=True, reason="High-risk action: {action_type}")
-        #
-        # 2. Check confidence thresholds:
-        #    - confidence >= 0.9:
-        #      action="auto_send", priority="low",
-        #      requires_human=False, reason="High confidence"
-        #
-        #    - 0.7 <= confidence < 0.9:
-        #      action="queue_review", priority="normal",
-        #      requires_human=True, reason="Medium confidence — needs review"
-        #
-        #    - confidence < 0.7:
-        #      action="escalate", priority="high",
-        #      requires_human=True, reason="Low confidence — escalating"
+        # Step 1: Check if the action is high-risk (always escalate)
+        # Why: High-risk actions like money transfers and account closures can cause
+        # irreversible harm. No matter how confident the AI is, a human must approve.
+        if action_type in HIGH_RISK_ACTIONS:
+            return RoutingDecision(
+                action="escalate",
+                confidence=confidence,
+                reason=f"High-risk action: {action_type}",
+                priority="high",
+                requires_human=True,
+            )
 
-        return RoutingDecision(
-            action="auto_send",
-            confidence=confidence,
-            reason="TODO: implement routing logic",
-            priority="low",
-            requires_human=False,
-        )  # TODO: Replace with implementation
+        # Step 2: Route based on confidence thresholds
+        if confidence >= self.HIGH_THRESHOLD:
+            # HIGH confidence (≥ 0.9): AI is very sure — auto-send to user
+            # Why: For routine queries (balance check, FAQ), speed matters more than review.
+            return RoutingDecision(
+                action="auto_send",
+                confidence=confidence,
+                reason="High confidence",
+                priority="low",
+                requires_human=False,
+            )
+        elif confidence >= self.MEDIUM_THRESHOLD:
+            # MEDIUM confidence (0.7–0.9): AI is somewhat sure — queue for human review
+            # Why: Responses might be correct but could contain subtle errors.
+            # A human reviewer checks before sending, preventing bad experiences.
+            return RoutingDecision(
+                action="queue_review",
+                confidence=confidence,
+                reason="Medium confidence — needs review",
+                priority="normal",
+                requires_human=True,
+            )
+        else:
+            # LOW confidence (< 0.7): AI is uncertain — escalate immediately
+            # Why: Low confidence means the AI might produce incorrect or harmful output.
+            # A human agent should handle this directly to protect the customer.
+            return RoutingDecision(
+                action="escalate",
+                confidence=confidence,
+                reason="Low confidence — escalating to human agent",
+                priority="high",
+                requires_human=True,
+            )
 
 
 # ============================================================
@@ -109,27 +128,48 @@ class ConfidenceRouter:
 hitl_decision_points = [
     {
         "id": 1,
-        "name": "TODO: Name this decision point",
-        "trigger": "TODO: When does this trigger?",
-        "hitl_model": "TODO: human-in-the-loop / human-on-the-loop / human-as-tiebreaker",
-        "context_needed": "TODO: What does the reviewer need to see?",
-        "example": "TODO: Give a concrete example scenario",
+        "name": "Large Transaction Approval",
+        "trigger": "Customer requests a money transfer exceeding 50,000,000 VND "
+                  "or an international wire transfer to a new recipient.",
+        "hitl_model": "human-in-the-loop",
+        "context_needed": "Transaction amount, sender/receiver account details, "
+                         "transaction history with this recipient, customer's typical "
+                         "transaction patterns, and any fraud risk score.",
+        "example": "A customer asks to wire 200,000,000 VND to a new overseas account. "
+                  "The AI prepares the transfer details but pauses execution. A human "
+                  "reviewer checks the transaction against fraud patterns and the customer's "
+                  "profile before approving or rejecting.",
     },
     {
         "id": 2,
-        "name": "TODO: Name this decision point",
-        "trigger": "TODO: When does this trigger?",
-        "hitl_model": "TODO: human-in-the-loop / human-on-the-loop / human-as-tiebreaker",
-        "context_needed": "TODO: What does the reviewer need to see?",
-        "example": "TODO: Give a concrete example scenario",
+        "name": "Complaint Escalation & Sensitive Topics",
+        "trigger": "Customer expresses strong dissatisfaction (negative sentiment score > 0.8), "
+                  "mentions legal action, or discusses sensitive topics like discrimination "
+                  "or bereavement-related account changes.",
+        "hitl_model": "human-as-tiebreaker",
+        "context_needed": "Full conversation history, customer sentiment scores, "
+                         "customer tier (VIP/regular), previous complaint records, "
+                         "and the AI's proposed response.",
+        "example": "A customer says 'I will sue VinBank if this isn't resolved today!' "
+                  "The AI drafts a de-escalation response, but both the AI and a secondary "
+                  "model disagree on the best approach. A human manager reviews both options "
+                  "and picks the appropriate response.",
     },
     {
         "id": 3,
-        "name": "TODO: Name this decision point",
-        "trigger": "TODO: When does this trigger?",
-        "hitl_model": "TODO: human-in-the-loop / human-on-the-loop / human-as-tiebreaker",
-        "context_needed": "TODO: What does the reviewer need to see?",
-        "example": "TODO: Give a concrete example scenario",
+        "name": "Suspicious Activity Reporting",
+        "trigger": "The system detects potential money laundering patterns: multiple "
+                  "small transfers just below reporting thresholds, rapid account "
+                  "openings/closings, or transactions matching sanctioned entities.",
+        "hitl_model": "human-on-the-loop",
+        "context_needed": "Flagged transaction list, pattern analysis report, "
+                         "customer KYC data, related accounts network graph, "
+                         "and regulatory reporting requirements.",
+        "example": "The AI detects 15 transfers of 9,900,000 VND each (just below the "
+                  "10,000,000 VND reporting threshold) from one account in 24 hours. "
+                  "The AI automatically files a preliminary alert, and a compliance "
+                  "officer reviews the case and decides whether to file a Suspicious "
+                  "Activity Report (SAR) with the State Bank of Vietnam.",
     },
 ]
 
