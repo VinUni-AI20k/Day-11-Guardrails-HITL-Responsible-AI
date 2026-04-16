@@ -84,13 +84,40 @@ class ConfidenceRouter:
         #      action="escalate", priority="high",
         #      requires_human=True, reason="Low confidence — escalating"
 
+        if action_type in HIGH_RISK_ACTIONS:
+            return RoutingDecision(
+                action="escalate",
+                confidence=confidence,
+                reason=f"High-risk action: {action_type}",
+                priority="high",
+                requires_human=True,
+            )
+
+        if confidence >= self.HIGH_THRESHOLD:
+            return RoutingDecision(
+                action="auto_send",
+                confidence=confidence,
+                reason="High confidence",
+                priority="low",
+                requires_human=False,
+            )
+
+        if confidence >= self.MEDIUM_THRESHOLD:
+            return RoutingDecision(
+                action="queue_review",
+                confidence=confidence,
+                reason="Medium confidence — needs review",
+                priority="normal",
+                requires_human=True,
+            )
+
         return RoutingDecision(
-            action="auto_send",
+            action="escalate",
             confidence=confidence,
-            reason="TODO: implement routing logic",
-            priority="low",
-            requires_human=False,
-        )  # TODO: Replace with implementation
+            reason="Low confidence — escalating",
+            priority="high",
+            requires_human=True,
+        )
 
 
 # ============================================================
@@ -109,27 +136,27 @@ class ConfidenceRouter:
 hitl_decision_points = [
     {
         "id": 1,
-        "name": "TODO: Name this decision point",
-        "trigger": "TODO: When does this trigger?",
-        "hitl_model": "TODO: human-in-the-loop / human-on-the-loop / human-as-tiebreaker",
-        "context_needed": "TODO: What does the reviewer need to see?",
-        "example": "TODO: Give a concrete example scenario",
+        "name": "High-risk transaction approval",
+        "trigger": "Any high-risk action (transfer_money, close_account, change_password) or unusually large amount / new beneficiary",
+        "hitl_model": "human-in-the-loop",
+        "context_needed": "Customer identifiers, recent login/device signals, requested action details (amount, beneficiary), agent rationale/confidence, fraud flags",
+        "example": "User asks to transfer 500,000,000 VND to a new account right after a password reset; agent must escalate for manual approval",
     },
     {
         "id": 2,
-        "name": "TODO: Name this decision point",
-        "trigger": "TODO: When does this trigger?",
-        "hitl_model": "TODO: human-in-the-loop / human-on-the-loop / human-as-tiebreaker",
-        "context_needed": "TODO: What does the reviewer need to see?",
-        "example": "TODO: Give a concrete example scenario",
+        "name": "Identity verification / account takeover suspicion",
+        "trigger": "User requests sensitive account details or changes while failing verification signals (mismatched info, repeated attempts, suspicious wording)",
+        "hitl_model": "human-in-the-loop",
+        "context_needed": "Conversation transcript, verification steps completed, mismatch details, rate-limit events, risk score, recommended next questions",
+        "example": "User insists on changing phone number and asks for OTP bypass; agent escalates to human to follow KYC procedures",
     },
     {
         "id": 3,
-        "name": "TODO: Name this decision point",
-        "trigger": "TODO: When does this trigger?",
-        "hitl_model": "TODO: human-in-the-loop / human-on-the-loop / human-as-tiebreaker",
-        "context_needed": "TODO: What does the reviewer need to see?",
-        "example": "TODO: Give a concrete example scenario",
+        "name": "Dispute / compliance-sensitive guidance",
+        "trigger": "User disputes a transaction, requests chargeback steps, or asks for legal/compliance guidance beyond standard policy templates",
+        "hitl_model": "human-as-tiebreaker",
+        "context_needed": "Relevant bank policy excerpts, transaction metadata (if available), agent draft response, risk/compliance checklist, escalation guidelines",
+        "example": "User claims unauthorized card payment and requests immediate reversal; agent drafts response but human reviews for compliance wording and next steps",
     },
 ]
 
