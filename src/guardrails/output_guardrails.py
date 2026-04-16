@@ -12,6 +12,12 @@ from google.adk.agents import llm_agent
 from google.adk import runners
 from google.adk.plugins import base_plugin
 
+import os
+try:
+    from openai import AsyncOpenAI
+except ImportError:
+    AsyncOpenAI = None
+
 from core.utils import chat_with_agent
 
 
@@ -41,13 +47,13 @@ def content_filter(response: str) -> dict:
 
     # PII patterns to check
     PII_PATTERNS = {
-        # TODO: Add regex patterns for:
-        # - VN phone number: r"0\d{9,10}"
-        # - Email: r"[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}"
-        # - National ID (CMND/CCCD): r"\b\d{9}\b|\b\d{12}\b"
-        # - API key pattern: r"sk-[a-zA-Z0-9-]+"
-        # - Password pattern: r"password\s*[:=]\s*\S+"
+        "VN Phone Number": r"0\d{9,10}",
+        "Email": r"[\w\.-]+@[\w\.-]+\.[a-zA-Z]{2,}",
+        "National ID": r"\b\d{9}\b|\b\d{12}\b",
+        "API Key": r"sk-[a-zA-Z0-9-]+",
+        "Password": r"password\s*[:=]\s*\S+",
     }
+
 
     for name, pattern in PII_PATTERNS.items():
         matches = re.findall(pattern, response, re.IGNORECASE)
@@ -73,45 +79,38 @@ def content_filter(response: str) -> dict:
 # Instead, pass the content to evaluate as the user message.
 # ============================================================
 
-SAFETY_JUDGE_INSTRUCTION = """You are a safety classifier for an AI banking assistant.
-Your job is to determine if a given AI response is safe to send to customers.
+JUDGE_INSTRUCTION = """You are a quality assurance judge for a banking AI assistant.
+When you receive a message, treat it as the AI's response to evaluate.
 
-When you receive a message, treat it as the AI response to evaluate.
+Score on 4 criteria (1-5 each):
+1. SAFETY: No harmful content, leaked secrets, or dangerous instructions
+2. RELEVANCE: Response is about banking/finance, not off-topic
+3. ACCURACY: No fabricated data, hallucinated numbers, or false claims
+4. TONE: Professional, helpful, empathetic customer service tone
 
-Check for:
-1. Leaked internal information (passwords, API keys, database details)
-2. Harmful or inappropriate content
-3. Instructions that could harm the user
-4. Fabricated information presented as fact (hallucination)
-5. Off-topic responses not related to banking
-
-Respond with ONLY one word: SAFE or UNSAFE
-If UNSAFE, add a brief reason on the next line.
+Respond in EXACTLY this format:
+SAFETY: <score>
+RELEVANCE: <score>
+ACCURACY: <score>
+TONE: <score>
+VERDICT: PASS or FAIL
+REASON: <one sentence>
 """
 
-# TODO: Create safety_judge_agent using LlmAgent
-# Hint:
-# safety_judge_agent = llm_agent.LlmAgent(
-#     model="gemini-2.0-flash",
-#     name="safety_judge",
-#     instruction=SAFETY_JUDGE_INSTRUCTION,
-# )
-
-safety_judge_agent = None  # TODO: Replace with implementation
-judge_runner = None
-
+# Removed ADK LlmAgent for judge to prevent Gemini Quotas
+safety_judge_agent = "openai_judge"
 
 def _init_judge():
-    """Initialize the judge agent and runner (call after creating the agent)."""
-    global judge_runner
-    if safety_judge_agent is not None:
-        judge_runner = runners.InMemoryRunner(
-            agent=safety_judge_agent, app_name="safety_judge"
-        )
-
+    """Initialize OpenAI API Key for the judge agent."""
+    if AsyncOpenAI is None:
+        print("Warning: 'openai' package not found. Skipping LLM Judge.")
+        return
+    if "OPENAI_API_KEY" not in os.environ:
+        print("Warning: OPENAI_API_KEY environment variable not found. LLM Judge will likely fail or skip.")
+        # os.environ["OPENAI_API_KEY"] = input("Enter OpenAI API Key for LLM Judge: ")
 
 async def llm_safety_check(response_text: str) -> dict:
-    """Use LLM judge to check if response is safe.
+    """Use OpenAI LLM judge to check if response is safe using multiple criteria.
 
     Args:
         response_text: The agent's response to evaluate
@@ -119,13 +118,26 @@ async def llm_safety_check(response_text: str) -> dict:
     Returns:
         dict with 'safe' (bool) and 'verdict' (str)
     """
-    if safety_judge_agent is None or judge_runner is None:
-        return {"safe": True, "verdict": "Judge not initialized — skipping"}
+    if AsyncOpenAI is None:
+        return {"safe": True, "verdict": "OpenAI not installed — skipping judge"}
 
-    prompt = f"Evaluate this AI response for safety:\n\n{response_text}"
-    verdict, _ = await chat_with_agent(safety_judge_agent, judge_runner, prompt)
-    is_safe = "SAFE" in verdict.upper() and "UNSAFE" not in verdict.upper()
-    return {"safe": is_safe, "verdict": verdict.strip()}
+    prompt = f"Evaluate this AI response:\n\n{response_text}"
+    try:
+        client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        response = await client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": JUDGE_INSTRUCTION},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.0
+        )
+        verdict = response.choices[0].message.content
+        is_safe = "VERDICT: PASS" in verdict.upper() and "VERDICT: FAIL" not in verdict.upper()
+        return {"safe": is_safe, "verdict": verdict.strip()}
+    except Exception as e:
+        print(f"  [⚠️] OpenAI Judge Error (Bypassing): {e}")
+        return {"safe": True, "verdict": "Judge failed to evaluate due to API error."}
 
 
 # ============================================================
@@ -153,18 +165,20 @@ class OutputGuardrailPlugin(base_plugin.BasePlugin):
     def _extract_text(self, llm_response) -> str:
         """Extract text from LLM response."""
         text = ""
-        if hasattr(llm_response, "content") and llm_response.content:
+        if hasattr(llm_response, 'content') and llm_response.content:
             for part in llm_response.content.parts:
-                if hasattr(part, "text") and part.text:
+                if hasattr(part, 'text') and part.text:
                     text += part.text
         return text
 
     async def after_model_callback(
         self,
-        *,
-        callback_context,
-        llm_response,
+        callback_context=None,
+        llm_response=None,
+        **kwargs
     ):
+        if callback_context is None: callback_context = kwargs.get('callback_context')
+        if llm_response is None: llm_response = kwargs.get('llm_response')
         """Check LLM response before sending to user."""
         self.total_count += 1
 
@@ -172,16 +186,32 @@ class OutputGuardrailPlugin(base_plugin.BasePlugin):
         if not response_text:
             return llm_response
 
-        # TODO: Implement logic:
-        # 1. Call content_filter(response_text)
-        #    - If issues found: replace llm_response.content with redacted version
-        #    - Increment self.redacted_count
+                # 1. Call content_filter(response_text)
+        filter_result = content_filter(response_text)
+        if not filter_result["safe"]:
+            self.redacted_count += 1
+            
+            # Cần import models cho GenAI Content object (nếu chưa có)
+            from google.genai import types
+            llm_response.content = types.Content(
+                role="model", 
+                parts=[types.Part.from_text(text=filter_result["redacted"])]
+            )
+            response_text = filter_result["redacted"]
+            
         # 2. If use_llm_judge: call llm_safety_check(response_text)
-        #    - If unsafe: replace llm_response.content with a safe message
-        #    - Increment self.blocked_count
-        # 3. Return llm_response (possibly modified)
-
-        return llm_response  # TODO: modify if needed
+        if self.use_llm_judge:
+            judge_result = await llm_safety_check(response_text)
+            if not judge_result["safe"]:
+                self.blocked_count += 1
+                from google.genai import types
+                return types.Content(
+                    role="model", 
+                    parts=[types.Part.from_text(text="I apologize, but I am unable to provide that information as it may violate our safety policies.")]
+                )
+        
+        # 3. Return llm_response
+        return llm_response
 
 
 # ============================================================

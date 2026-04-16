@@ -83,7 +83,7 @@ async def part3_testing():
     print("PART 3: Security Testing Pipeline")
     print("=" * 60)
 
-    from testing.testing import run_comparison, print_comparison, SecurityTestPipeline
+    from testing.testing import run_comparison, print_comparison, test_pipeline
     from agents.agent import create_unsafe_agent
 
     # TODO 10: Before vs after comparison
@@ -96,13 +96,7 @@ async def part3_testing():
 
     # TODO 11: Automated security pipeline
     print("\n--- TODO 11: Security Test Pipeline ---")
-    agent, runner = create_unsafe_agent()
-    pipeline = SecurityTestPipeline(agent, runner)
-    results = await pipeline.run_all()
-    if results:
-        pipeline.print_report(results)
-    else:
-        print("Complete TODO 11 to see the pipeline report.")
+    await test_pipeline()
 
 
 def part4_hitl():
